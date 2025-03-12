@@ -1,5 +1,7 @@
 const express = require('express')
 const morgan = require('morgan')
+require('dotenv').config()
+const Person = require('./models/person')
 const app = express()
 app.use(express.json())
 app.use(express.static('dist'))
@@ -39,10 +41,12 @@ const formatTime = (number) => {
     return number < 10 ? '0' + number : number
 }
 app.get('/api/persons', (request, response) => {
-    response.json(persons)
+    Person.find({}).then(p => {
+        response.json(p)
+    })
 })
 
-app.get('/info', (request, response) => {
+app.get('/info', (request, response,next) => {
     const days = new Array('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
     const months = new Array('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
     const date = new Date()
@@ -55,36 +59,39 @@ app.get('/info', (request, response) => {
     const seconds = formatTime(date.getSeconds())
     const zone = date.getTimezoneOffset()
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    response.send(`
-        <div>
-            <p>Phonebook has info of ${persons.length} people</p>
-        </div>
-        <div>
-            <p>${day} ${month} ${currentDate} ${year} ${hours}:${minutes}:${seconds} GMT${zone} (${timeZone} Standard time)</p>
-        </div>`
-    )
+    Person.find({})
+        .then(result =>{
+            response.send(`
+                <div>
+                    <p>Phonebook has info of ${result.length} people</p>
+                </div>
+                <div>
+                    <p>${day} ${month} ${currentDate} ${year} ${hours}:${minutes}:${seconds} GMT${zone} (${timeZone} Standard time)</p>
+                </div>`
+            )
+        })
+        .catch(error => next(error))
 })
 
-app.get('/api/persons/:id', (request, response) => {
-
-    const id = request.params.id
-    const person = persons.find(p => p.id === id)
-    if (person) {
-        return response.status(200).json(person)
-    }
-    console.log("Person not found")
-    return response.status(404).json({ message: "id not found" })
-
+app.get('/api/persons/:id', (request, response, next) => {
+    Person.findById(request.params.id).then(p =>{
+        if(p)
+        response.json(p)
+        else
+        response.status(404).end()
+    })
+    .catch(error => next(error))
 })
 
-app.delete('/api/persons/:id', (request,response) => {
-    const id= request.params.id
-    persons=persons.filter(p => p.id!=id)
-
-    response.status(204).end()
+app.delete('/api/persons/:id', (request,response,next) => {
+    Person.findByIdAndDelete(request.params.id)
+        .then(result =>{
+            response.status(204).end()
+        })
+        .catch(error => next(error))
 })
 
-app.post('/api/persons',(request,response) => {
+app.post('/api/persons',(request,response,next) => {
     const body=request.body
     if(!body.name || !body.number)
     {
@@ -93,22 +100,47 @@ app.post('/api/persons',(request,response) => {
         console.log('name or number missing');
         
     }
-    if(persons.find(p => p.name===body.name))
-    {
-        response.status(400).json({
-            error: `${body.name} is already added in the phonebook`
+    else{
+        const person = new Person({
+            name: body.name,
+            number:body.number,
         })
-        console.log('Already exists')
+        person.save().then(p =>{
+            response.json(p)
+        })
+        .catch(error => next(error))
     }
-    const person = {
-        name: body.name,
-        number:body.number,
-        id: generateId(),
-    }
-    persons=persons.concat(person)
-    response.json(person)
 })
-const PORT = process.env.PORT||3001
-app.listen(PORT, (req, res) => {
+
+app.put('/api/persons/:id', (request, response, next) => {
+    const {name, number} =request.body
+    Person.findByIdAndUpdate(request.params.id,{name,number},{new: true, runValidators: true, context: 'query'})
+        .then(updatedPerson =>{
+            if(updatedPerson){
+                response.json(updatedPerson)
+            }
+            else{
+            response.status(404).end()}
+        })
+        .catch(error => next(error))
+    })
+
+const errorHandler = (error, request, response, next) =>{
+    console.error(error.message)
+    if(error.name==='CastError')
+    {
+       return response.status(400).send({error: 'Malformed id'})
+    }
+    else if(error.name==='ValidationError')
+    {
+         return response.status(400).json({error: error.message})
+    }
+    next(error)
+}
+
+app.use(errorHandler)
+
+const PORT = process.env.PORT
+app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
 })

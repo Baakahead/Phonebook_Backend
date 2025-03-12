@@ -1,2 +1,2 @@
-GET https://phonebook-backend-szf0.onrender.com/
+GET http://localhost:3001/api/persons/67cf0e1ee2e8716e1810c98
 
